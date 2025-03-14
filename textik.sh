@@ -2,57 +2,30 @@
 
 # Проверка на наличие аргумента (имя файла)
 if [ $# -ne 1 ]; then
-    echo "Использование: $0 <имя_файла>"
+    echo "Использование: $0 <имя_файла.mp4>"
     exit 1
 fi
 
-input_file=$1  # Теперь используем правильную переменную
-filename_without_extension="${input_file%.*}"  # Извлекаем имя без расширения
-file_extension="${input_file##*.}"  # Получаем расширение файла
-output_mp3="${filename_without_extension}.mp3"
-output_txt="${filename_without_extension}_transcription.txt"
+# Входной файл
+input_file=$1
 
-# Функция для конвертации видео в аудио
-convert_video_to_audio() {
-    ffmpeg -i "$1" -vn -acodec mp3 "$2"
-    echo "Конвертация завершена: $2"
-}
+# Извлекаем имя файла без расширения
+filename_without_extension="${input_file%.*}"
 
-# Функция для разбиения аудио на части (по 30 минут)
-split_audio() {
-    mkdir -p audio_parts
-    ffmpeg -i "$1" -f segment -segment_time 1800 -c copy audio_parts/"${filename_without_extension}_part_%03d.mp3"
-    echo "Аудио разделено на части в директории audio_parts"
-}
+mkdir "${filename_without_extension}"
+cd "${filename_without_extension}"
+# Конвертация .mp4 в .mp3
+echo "Конвертируем $input_file в MP3..."
+ffmpeg -i ../"$input_file" -vn -acodec mp3 "${filename_without_extension}.mp3"
 
-# Функция для транскрибации и сохранения в текстовый файл
-transcribe_audio() {
-    whisper "$1" --model medium --output_dir ./transcriptions
-    echo "Транскрибация завершена для $1"
-}
+# Транскрибация с помощью Whisper и сохранение в текстовый файл
+echo "Запускаем транскрибацию для ${filename_without_extension}.mp3..."
+whisper "${filename_without_extension}.mp3" --model medium --output_dir . > "${filename_without_extension}.txt"
 
-# Очистка существующего файла с результатами
-> "$output_txt"
+echo "Форматируем транскрипт..."
+sed -E 's/^\[.*\] *//g' "${filename_without_extension}.txt" > "${filename_without_extension}_formatted.txt"
 
-# Конвертация видео в аудио
-convert_video_to_audio "$input_file" "$output_mp3"
+echo "Удаляем временные файлы..."
+find . -type f ! -name "${filename_without_extension}.mp3" ! -name "${filename_without_extension}.txt" ! -name "${filename_without_extension}_formatted.txt" -exec rm -f {} \;
 
-# Разбиение аудио на части
-split_audio "$output_mp3"
-
-# Транскрибация каждой части аудио и сохранение результата в текстовый файл
-for part in audio_parts/*.mp3; do
-    echo "Транскрибируем $part..."
-    transcribe_audio "$part"
-    
-    # Добавление результатов транскрибации в итоговый текстовый файл
-    for txt_file in ./transcriptions/*.txt; do
-        cat "$txt_file" >> "$output_txt"
-        rm "$txt_file"  # Удаление временного текстового файла
-    done
-done
-
-# Очистка временных файлов
-rm -rf audio_parts transcriptions
-
-echo "Процесс завершён. Результаты транскрибации сохранены в $output_txt."
+echo "Процесс завершён. Результаты транскрибации сохранены в ${filename_without_extension}.txt."
